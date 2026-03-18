@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  base: '/raging-sea-led/',
+  base: '/led-wall-renderer/',
   server: { port: 5180 },
 })
