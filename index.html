@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>LED Render</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; color: #fff; font-family: monospace; overflow: hidden; }
+    #controls {
+      position: fixed; top: 0; left: 0; right: 0;
+      background: rgba(0,0,0,0.85); padding: 8px 16px;
+      display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+      z-index: 100; font-size: 13px;
+    }
+    .tabs {
+      display: flex; gap: 0;
+    }
+    .tab-btn {
+      padding: 6px 20px; border: 1px solid #555; background: #222;
+      color: #888; cursor: pointer; font-family: monospace; font-size: 13px;
+      transition: all .15s;
+    }
+    .tab-btn:first-child { border-radius: 4px 0 0 4px; }
+    .tab-btn:last-child { border-radius: 0 4px 4px 0; }
+    .tab-btn.active { background: #444; color: #fff; border-color: #888; }
+    .tab-btn:hover:not(.active) { background: #333; }
+    #controls button.action-btn {
+      padding: 6px 16px; border: 1px solid #555; background: #222;
+      color: #fff; cursor: pointer; font-family: monospace; font-size: 13px;
+    }
+    #controls button.action-btn:hover { background: #444; }
+    #controls button.recording { background: #a00; border-color: #f00; }
+    #status { color: #aaa; }
+    .scene-container {
+      width: 100vw; height: calc(100vh - 44px); margin-top: 44px;
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden;
+    }
+    .scene-container.hidden { display: none; }
+    canvas {
+      display: block; max-width: 100%; max-height: 100%;
+      object-fit: contain;
+    }
+  </style>
+  <script type="module" crossorigin src="/raging-sea-led/assets/index-D2Nq6HSX.js"></script>
+</head>
+<body>
+  <div id="controls">
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="raging-sea">1. Raging Sea</button>
+      <button class="tab-btn" data-tab="cheap-noise">2. Cheap Noise</button>
+      <button class="tab-btn" data-tab="fluid-sim">3. Fluid Sim</button>
+      <button class="tab-btn" data-tab="color-waves">4. Color Waves</button>
+      <button class="tab-btn" data-tab="fire-warp">5. Fire Warp</button>
+    </div>
+    <button id="btn-record" class="action-btn">● REC (3 min)</button>
+    <span id="status">Ready</span>
+  </div>
+  <div id="scene-raging-sea" class="scene-container"></div>
+  <div id="scene-cheap-noise" class="scene-container hidden"></div>
+  <div id="scene-fluid-sim" class="scene-container hidden"></div>
+  <div id="scene-color-waves" class="scene-container hidden"></div>
+  <div id="scene-fire-warp" class="scene-container hidden"></div>
+</body>
+</html>
