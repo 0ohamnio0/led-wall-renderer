@@ -33,7 +33,7 @@ function fitCanvas() {
 window.addEventListener("resize", fitCanvas);
 fitCanvas();
 
-const gl = canvas.getContext("webgl2", { preserveDrawingBuffer: true });
+const gl = canvas.getContext("webgl2", { preserveDrawingBuffer: true, alpha: false });
 if (!gl) alert("WebGL2 not supported");
 
 // --- Tunable parameters ---
@@ -249,21 +249,24 @@ function render() {
 
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
-  if (isRecording) tickRecording();
+  if (isRecording) encodeFrame();
   requestAnimationFrame(render);
 }
 
 // ═══════════════════════════════════════════
-//  Recording — WebM (1 min)
+//  Recording — MP4 (WebCodecs + mp4-muxer)
+//  Frame-by-frame H.264 encoding for pixel-perfect quality
 // ═══════════════════════════════════════════
+import { Muxer, ArrayBufferTarget } from "mp4-muxer";
+
 const FPS = 30;
 const DURATION = 60;
 const TOTAL_FRAMES = FPS * DURATION;
 
 let isRecording = false;
-let recordedChunks = [];
-let mediaRecorder = null;
 let frameCount = 0;
+let muxer = null;
+let videoEncoder = null;
 
 const btnRecord = document.getElementById("btn-record");
 const statusEl = document.getElementById("status");
@@ -274,47 +277,78 @@ btnRecord.addEventListener("click", () => {
 });
 
 function startRecording() {
-  const stream = canvas.captureStream(FPS);
-  mediaRecorder = new MediaRecorder(stream, {
-    mimeType: "video/webm;codecs=vp9",
-    videoBitsPerSecond: 50_000_000,
+  const target = new ArrayBufferTarget();
+  muxer = new Muxer({
+    target,
+    video: {
+      codec: "avc",
+      width: WIDTH,
+      height: HEIGHT,
+    },
+    fastStart: "in-memory",
   });
-  recordedChunks = [];
-  mediaRecorder.ondataavailable = (e) => {
-    if (e.data.size > 0) recordedChunks.push(e.data);
-  };
-  mediaRecorder.onstop = () => {
-    const blob = new Blob(recordedChunks, { type: "video/webm" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `tunnelwisp-${WIDTH}x${HEIGHT}-${DURATION}s.webm`;
-    a.click();
-    URL.revokeObjectURL(url);
-    statusEl.textContent = "Done — file downloaded";
-  };
-  mediaRecorder.start(1000);
+
+  videoEncoder = new VideoEncoder({
+    output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+    error: (e) => console.error("VideoEncoder error:", e),
+  });
+
+  videoEncoder.configure({
+    codec: "avc1.640033", // H.264 High Profile Level 5.1
+    width: WIDTH,
+    height: HEIGHT,
+    bitrate: 80_000_000, // 80 Mbps for high quality
+    framerate: FPS,
+  });
+
   isRecording = true;
   frameCount = 0;
   btnRecord.textContent = "■ STOP";
   btnRecord.classList.add("recording");
   statusEl.textContent = "Recording...";
-  setTimeout(() => { if (isRecording) stopRecording(); }, DURATION * 1000);
 }
 
-function stopRecording() {
-  if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
+async function stopRecording() {
   isRecording = false;
+  btnRecord.textContent = "...";
+  statusEl.textContent = "Encoding...";
+
+  await videoEncoder.flush();
+  videoEncoder.close();
+  muxer.finalize();
+
+  const buf = muxer.target.buffer;
+  const blob = new Blob([buf], { type: "video/mp4" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `tunnelwisp-${WIDTH}x${HEIGHT}-${DURATION}s.mp4`;
+  a.click();
+  URL.revokeObjectURL(url);
+
+  muxer = null;
+  videoEncoder = null;
   btnRecord.textContent = "● REC (1 min)";
   btnRecord.classList.remove("recording");
+  statusEl.textContent = "Done — MP4 downloaded";
 }
 
-function tickRecording() {
+function encodeFrame() {
+  const frame = new VideoFrame(canvas, {
+    timestamp: (frameCount * 1_000_000) / FPS, // microseconds
+    duration: 1_000_000 / FPS,
+  });
+  const isKeyFrame = frameCount % (FPS * 2) === 0; // keyframe every 2s
+  videoEncoder.encode(frame, { keyFrame: isKeyFrame });
+  frame.close();
+
   frameCount++;
   const elapsed = frameCount / FPS;
   const mins = Math.floor(elapsed / 60);
   const secs = Math.floor(elapsed % 60);
   statusEl.textContent = `Recording ${mins}:${secs.toString().padStart(2, "0")} / 1:00  (${frameCount}/${TOTAL_FRAMES} frames)`;
+
+  if (frameCount >= TOTAL_FRAMES) stopRecording();
 }
 
 render();
