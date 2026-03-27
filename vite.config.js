@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  base: '/led-wall-renderer/',
+  base: process.env.VERCEL ? '/' : '/led-wall-renderer/',
 })
