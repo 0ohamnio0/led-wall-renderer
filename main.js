@@ -39,16 +39,16 @@ if (!gl) alert("WebGL2 not supported");
 // ═══════════════════════════════════════════
 
 const transition = {
-  duration: 8.0,       // seconds per scene
-  blendTime: 3.0,      // crossfade duration
+  duration: 60.0,      // seconds per scene (1 min each)
+  blendTime: 7.0,      // crossfade duration
   currentScene: 0,
-  paused: true,
+  paused: false,
 };
 
 // Tunnelwisp params
 const twParams = {
-  baseColorR: 1.04, baseColorG: 0.96, baseColorB: 1.19,
-  wispColorR: 2.91, wispColorG: 2.79, wispColorB: 2.54,
+  baseColorR: 0.92, baseColorG: 0.88, baseColorB: 0.84,
+  wispColorR: 2.4, wispColorG: 2.3, wispColorB: 2.15,
   caveSpeed: 1.0, twistAmount: 2.5,
   gyroidScale1: 6.0, gyroidScale2: 15.0,
   glowIntensity: 1.04,
@@ -56,11 +56,11 @@ const twParams = {
   reflectionDim: 0.39,
   exposure: 85000,
   maxSteps: 69, epsilon: 0.0037,
-  saturation: 0.14,
+  saturation: 0.08,
   viewX: -0.45, viewY: 0.0,
   ambientLight: 0.04,
   fogDensity: 0.17,
-  fogColorR: 0.28, fogColorG: 0.285, fogColorB: 0.29,
+  fogColorR: 0.24, fogColorG: 0.23, fogColorB: 0.22,
   shadowLift: 0.17,
   scatterAmount: 0.0008,
   ambientAccum: 0.007,
@@ -72,34 +72,34 @@ const cnParams = {
   scale: 0.35,
   ax: 4.36, ay: 5.86, az: 5.29, aw: 11.5,
   bx: 0.8, by: 0.8,
-  color1R: 0.93, color1G: 0.93, color1B: 1.71,
-  color2R: 1.4, color2G: 1.32, color2B: 1.2,
-  color3R: 0.64, color3G: 0.8, color3B: 0.95,
-  color4R: 0.9, color4G: 1.05, color4B: 1.19,
-  timeSpeed: 2.0,
+  color1R: 0.95, color1G: 0.90, color1B: 0.85,
+  color2R: 1.1, color2G: 1.05, color2B: 0.98,
+  color3R: 0.78, color3G: 0.75, color3B: 0.72,
+  color4R: 1.0, color4G: 0.96, color4B: 0.91,
+  timeSpeed: 1.16,
   brightness: 1.29,
   contrast: 0.54,
-  saturation: 1.0,
+  saturation: 0.15,
   offsetX: -0.33, offsetY: 0.0,
   autoMove: true,
   autoAngle: 0.0,
-  autoSpeed: 0.69,
+  autoSpeed: 0.43,
 };
 
 // Fire Warp params
 const fwParams = {
-  timeSpeed: 0.54,
+  timeSpeed: 0.18,
   scale: 5.0,
-  brightness: 1.22,
-  contrast: 0.83,
+  brightness: 1.61,
+  contrast: 0.4,
   saturation: 0.0,
-  tintR: 1.08, tintG: 1.01, tintB: 0.56,
+  tintR: 0.95, tintG: 0.90, tintB: 0.82,
   colorShift: 0.0,
   hueRotate: 0.8,
-  offsetX: 3.12, offsetY: 0.0,
+  offsetX: 2.62, offsetY: 0.0,
   autoMove: true,
   autoAngle: 41.0,
-  autoSpeed: 5.0,
+  autoSpeed: 2.3,
 };
 
 // ═══════════════════════════════════════════
@@ -380,24 +380,58 @@ void main() {
 }
 `;
 
-// --- Composite (blend two scenes + door mask) ---
+// --- Global Color Grading params ---
+// Target palette from reference: mean RGB(220,212,203)/255 ≈ (0.863,0.831,0.796)
+// Warm cream/beige, very low saturation, high-key, narrow tonal range
+const gradeParams = {
+  saturation: 0.51,
+  contrast: 0.93,
+  liftR: 0.55, liftG: 0.53, liftB: 0.50,
+  gainR: 1.1, gainG: 1.1, gainB: 1.1,
+  tintR: 1.03, tintG: 0.93, tintB: 0.89,
+  tintStrength: 0.48,
+};
+
+// --- Composite (blend two scenes + door mask + color grading) ---
 const fragComposite = `#version 300 es
 precision highp float;
 out vec4 O;
 
 uniform sampler2D u_texA;
 uniform sampler2D u_texB;
-uniform float u_blend;  // 0 = full A, 1 = full B
+uniform float u_blend;
 uniform vec2 iResolution;
 uniform vec4 u_doorRect;
 
+// color grading uniforms
+uniform float u_saturation;
+uniform float u_contrast;
+uniform vec3 u_lift;
+uniform vec3 u_gain;
+uniform vec3 u_tint;
+uniform float u_tintStrength;
+
 void main() {
   vec2 C = gl_FragCoord.xy;
-
   vec2 uv = C / iResolution;
   vec4 a = texture(u_texA, uv);
   vec4 b = texture(u_texB, uv);
-  O = mix(a, b, u_blend);
+  vec3 col = mix(a, b, u_blend).rgb;
+
+  // 1. Lift-Gain-Gamma (shadows → warm taupe, highlights → cream)
+  col = u_lift * (1.0 - col) + col * u_gain;
+
+  // 2. Contrast compression (pivot at mid-gray)
+  col = mix(vec3(0.5), col, u_contrast);
+
+  // 3. Desaturation
+  float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
+  col = mix(vec3(lum), col, u_saturation);
+
+  // 4. Warm tint blend
+  col = mix(col, col * u_tint, u_tintStrength);
+
+  O = vec4(clamp(col, 0.0, 1.0), 1.0);
 }
 `;
 
@@ -483,6 +517,7 @@ const locFW = getUniforms(progFW, [
 const progComp = createProgram(fragComposite);
 const locComp = getUniforms(progComp, [
   "u_texA", "u_texB", "u_blend", "iResolution", "u_doorRect",
+  "u_saturation", "u_contrast", "u_lift", "u_gain", "u_tint", "u_tintStrength",
 ]);
 
 // FBOs for each scene
@@ -594,6 +629,21 @@ const renderFns = [renderTunnelwisp, renderCheapNoise, renderFireWarp];
 // ═══════════════════════════════════════════
 
 const gui = new GUI({ title: "LED Wall Renderer" });
+
+const fGrade = gui.addFolder("Color Grading");
+fGrade.add(gradeParams, "saturation", 0, 1, 0.01).name("Saturation");
+fGrade.add(gradeParams, "contrast", 0.3, 1.2, 0.01).name("Contrast");
+fGrade.add(gradeParams, "liftR", 0, 0.5, 0.01).name("Lift R");
+fGrade.add(gradeParams, "liftG", 0, 0.5, 0.01).name("Lift G");
+fGrade.add(gradeParams, "liftB", 0, 0.5, 0.01).name("Lift B");
+fGrade.add(gradeParams, "gainR", 0.5, 1.5, 0.01).name("Gain R");
+fGrade.add(gradeParams, "gainG", 0.5, 1.5, 0.01).name("Gain G");
+fGrade.add(gradeParams, "gainB", 0.5, 1.5, 0.01).name("Gain B");
+fGrade.add(gradeParams, "tintR", 0.5, 1.2, 0.01).name("Tint R");
+fGrade.add(gradeParams, "tintG", 0.5, 1.2, 0.01).name("Tint G");
+fGrade.add(gradeParams, "tintB", 0.5, 1.2, 0.01).name("Tint B");
+fGrade.add(gradeParams, "tintStrength", 0, 1, 0.01).name("Tint Strength");
+fGrade.close();
 
 const fTrans = gui.addFolder("Transition");
 fTrans.add(transition, "duration", 3, 60, 0.5).name("Scene Duration (s)");
@@ -768,6 +818,12 @@ function render() {
     gl.uniform1f(locComp.u_blend, 0);
     gl.uniform2f(locComp.iResolution, WIDTH, HEIGHT);
     gl.uniform4f(locComp.u_doorRect, DOOR_X, DOOR_Y, DOOR_W, DOOR_H);
+    gl.uniform1f(locComp.u_saturation, gradeParams.saturation);
+    gl.uniform1f(locComp.u_contrast, gradeParams.contrast);
+    gl.uniform3f(locComp.u_lift, gradeParams.liftR, gradeParams.liftG, gradeParams.liftB);
+    gl.uniform3f(locComp.u_gain, gradeParams.gainR, gradeParams.gainG, gradeParams.gainB);
+    gl.uniform3f(locComp.u_tint, gradeParams.tintR, gradeParams.tintG, gradeParams.tintB);
+    gl.uniform1f(locComp.u_tintStrength, gradeParams.tintStrength);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   } else {
     // Render scene A to FBO A
@@ -794,6 +850,12 @@ function render() {
     gl.uniform1f(locComp.u_blend, state.blend);
     gl.uniform2f(locComp.iResolution, WIDTH, HEIGHT);
     gl.uniform4f(locComp.u_doorRect, DOOR_X, DOOR_Y, DOOR_W, DOOR_H);
+    gl.uniform1f(locComp.u_saturation, gradeParams.saturation);
+    gl.uniform1f(locComp.u_contrast, gradeParams.contrast);
+    gl.uniform3f(locComp.u_lift, gradeParams.liftR, gradeParams.liftG, gradeParams.liftB);
+    gl.uniform3f(locComp.u_gain, gradeParams.gainR, gradeParams.gainG, gradeParams.gainB);
+    gl.uniform3f(locComp.u_tint, gradeParams.tintR, gradeParams.tintG, gradeParams.tintB);
+    gl.uniform1f(locComp.u_tintStrength, gradeParams.tintStrength);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
@@ -820,7 +882,7 @@ function render() {
 // ═══════════════════════════════════════════
 
 const FPS = 30;
-const DURATION = 240;
+const DURATION = 201;              // 3:21 (3 scenes × 60s + 3 transitions × 7s)
 const TOTAL_FRAMES = FPS * DURATION;
 const WEBP_QUALITY = 0.92;
 
@@ -871,7 +933,7 @@ async function stopRecording() {
     }
   }
 
-  btnRecord.textContent = "● REC (4 min)";
+  btnRecord.textContent = "● REC (3:21)";
   btnRecord.classList.remove("recording");
   statusEl.textContent = `Done — ${frameCount} WebP frames saved to folder`;
   dirHandle = null;
@@ -890,7 +952,7 @@ function captureFrame() {
   const mins = Math.floor(elapsed / 60);
   const secs = Math.floor(elapsed % 60);
   const queued = writeQueue.length + pendingWrites;
-  statusEl.textContent = `Recording ${mins}:${secs.toString().padStart(2, "0")} / 4:00  (${frameCount}/${TOTAL_FRAMES} frames${queued > 0 ? `, ${queued} writing` : ""})`;
+  statusEl.textContent = `Recording ${mins}:${secs.toString().padStart(2, "0")} / 3:21  (${frameCount}/${TOTAL_FRAMES} frames${queued > 0 ? `, ${queued} writing` : ""})`;
 
   if (frameCount >= TOTAL_FRAMES) stopRecording();
 }
